@@ -3,6 +3,8 @@
 namespace Vizir\KeycloakWebGuard\Auth\Guard;
 
 use Illuminate\Auth\Events\Authenticated;
+use Illuminate\Auth\Events\Login;
+use Illuminate\Auth\Events\Logout;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Auth\StatefulGuard;
 use Illuminate\Http\Request;
@@ -102,10 +104,10 @@ class KeycloakWebGuard implements StatefulGuard
     }
 
     /**
-    * Disable viaRemember methode used by some bundles (like filament)
-    *
-    * @return bool
-    */
+     * Disable viaRemember methode used by some bundles (like filament)
+     *
+     * @return bool
+     */
     public function viaRemember()
     {
         return false;
@@ -175,7 +177,7 @@ class KeycloakWebGuard implements StatefulGuard
      * @param string $resource Default is empty: point to client_id
      *
      * @return bool|array
-    */
+     */
     public function roles($resource = '')
     {
         if (empty($resource)) {
@@ -216,5 +218,113 @@ class KeycloakWebGuard implements StatefulGuard
     public function hasRole($roles, $resource = '')
     {
         return empty(array_diff((array) $roles, $this->roles($resource)));
+    }
+
+    /**
+     * Attempt to authenticate a user using the given credentials.
+     *
+     * @param  array  $credentials
+     * @param  bool   $remember
+     * @return bool
+     */
+    public function attempt(array $credentials = [], $remember = false)
+    {
+        // For Keycloak, we'll leverage the validate method which already handles token validation
+        $result = $this->validate($credentials);
+
+        if ($result) {
+            $user = $this->user();
+            $this->login($user, $remember);
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Log a user into the application.
+     *
+     * @param  \Illuminate\Contracts\Auth\Authenticatable  $user
+     * @param  bool  $remember
+     * @return void
+     */
+    public function login(Authenticatable $user, $remember = false)
+    {
+        $this->setUser($user);
+
+        // Fire login event
+        event(new Login(Auth::getDefaultDriver(), $user, $remember));
+    }
+
+    /**
+     * Log the given user ID into the application.
+     *
+     * @param  mixed  $id
+     * @param  bool   $remember
+     * @return \Illuminate\Contracts\Auth\Authenticatable|bool
+     */
+    public function loginUsingId($id, $remember = false)
+    {
+        // For Keycloak, we typically don't log in directly with an ID
+        // Instead, we'll try to find the user and then authenticate with Keycloak
+        $user = $this->provider->retrieveById($id);
+
+        if ($user) {
+            $this->login($user, $remember);
+            return $user;
+        }
+
+        return false;
+    }
+
+    /**
+     * Log the user out of the application.
+     *
+     * @return void
+     */
+    public function logout()
+    {
+        $user = $this->user();
+
+        if ($user) {
+            // Fire logout event
+            event(new Logout(Auth::getDefaultDriver(), $user));
+        }
+
+        // Clear the token from storage
+        KeycloakWeb::forgetToken();
+
+        // Clear the user
+        $this->user = null;
+    }
+
+    /**
+     * Validate a user's credentials without actually logging them in.
+     *
+     * @param  array  $credentials
+     * @return bool
+     */
+    public function once(array $credentials = [])
+    {
+        // Similar to attempt but without the login event
+        return $this->validate($credentials);
+    }
+
+    /**
+     * Log the given user ID into the application without sessions or cookies.
+     *
+     * @param  mixed  $id
+     * @return bool
+     */
+    public function onceUsingId($id)
+    {
+        $user = $this->provider->retrieveById($id);
+
+        if ($user) {
+            $this->setUser($user);
+            return true;
+        }
+
+        return false;
     }
 }
